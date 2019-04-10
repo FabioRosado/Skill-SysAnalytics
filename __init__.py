@@ -1,8 +1,11 @@
 import psutil
 import datetime
+import logging
 
 from opsdroid.skill import Skill
 from opsdroid.matchers import match_always, match_crontab, match_regex
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def humansize(nbytes):
@@ -16,13 +19,15 @@ def humansize(nbytes):
     return '%s %s' % (f, suffixes[i])
 
 
-def convert_time(seconds):
+def convert_time(td):
     """Convert datetime delta to hours, minutes and seconds."""
-    hours = seconds // 3600
-    minutes = (seconds % 3600) // 60
-    seconds = seconds % 60
+    time = str(datetime.timedelta(seconds=td.seconds))
+    hours = time.split(":")[0]
+    minutes = (td.seconds % 3600) // 60
+    seconds = td.seconds % 60
+    days = td.days
 
-    return hours, minutes, seconds
+    return days, hours, minutes, seconds
 
 
 class Sysanalytics(Skill):
@@ -30,6 +35,7 @@ class Sysanalytics(Skill):
         super(Sysanalytics, self).__init__(opsdroid, config)
         self.commands_count = 0
 
+        self.config = config
         self.skills = self.get_configuration('skills')
         self.connectors = self.get_configuration('connectors')
         self.parsers = self.get_configuration('parsers')
@@ -112,11 +118,11 @@ class Sysanalytics(Skill):
     async def show_cpu(self, message):
         """Show cpu usage."""
         last_boot = datetime.datetime.fromtimestamp(
-            psutil.boot_time()).strftime("%d-%m-%Y %H:%M:%S")
+            psutil.boot_time()).strftime("%d-%m-%Y at %H:%M:%S")
         running_time = datetime.datetime.now() - \
             datetime.datetime.fromtimestamp(psutil.boot_time())
 
-        hours, minutes, seconds = convert_time(running_time.seconds)
+        days, hours, minutes, seconds = convert_time(running_time)
 
         await message.respond(
             """
@@ -124,12 +130,13 @@ class Sysanalytics(Skill):
             Your CPU has {cores} cores.
             You are using {percent}% of your CPU.
             There are currently {processes} processes running. 
-            Your machine has running for {hours} hours, {minutes} minutes and {seconds} seconds.
-            Last reboot date was {last_boot}.
+            Your machine has been running for {days} days, {hours} hours, {minutes} minutes and {seconds} seconds.
+            Last reboot date was on {last_boot}.
             """.format(
                 cores=psutil.cpu_count(),
                 percent=psutil.cpu_percent(),
                 processes=len(psutil.pids()),
+                days=days,
                 hours=hours,
                 minutes=minutes,
                 seconds=seconds,
@@ -146,8 +153,8 @@ class Sysanalytics(Skill):
             Network Status:
             You have sent {sent} in total.
             You have received {received} in total.
-            You have sent {packets_sent} in total.
-            You have received {packets_received} in total.
+            You have sent {packets_sent} packets in total.
+            You have received {packets_received} packets in total.
             """.format(
                 sent=humansize(net.bytes_sent),
                 received=humansize(net.bytes_recv),
@@ -178,3 +185,27 @@ class Sysanalytics(Skill):
         await self.show_cpu(message)
         await self.show_net(message)
 
+    @match_crontab('* * * * *', timezone="Europe/London")
+    async def minutely_status(self, message):
+        """Puts status in db every minute."""
+        time = datetime.datetime.now()
+        date = "{}-{}-{}".format(time.day, time.month, time.year)
+        hours = "{}:{}".format(time.hour, time.minute, )
+        mem = psutil.virtual_memory()
+        cpu_usage = psutil.cpu_percent()
+        ram_usage = mem.percent
+
+        if self.opsdroid.config.get('databases'):
+            status = await self.opsdroid.memory.get("status")
+            if not status:
+                status = {}
+
+            if not status.get(date, None):
+                status[date] = []
+            status[date].append({"Time": hours, "CPU": cpu_usage, "RAM": ram_usage})
+
+            await self.opsdroid.memory.put("status", status)
+
+        if self.config.get('log-usage'):
+            _LOGGER.info("{} - CPU usage: {}% | RAM usage: {}%".format(
+                hours, cpu_usage, ram_usage))
