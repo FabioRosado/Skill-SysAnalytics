@@ -1,9 +1,14 @@
 import psutil
 import datetime
 import logging
+import pandas as pd
+import matplotlib as mtpl
+mtpl.use('TkAgg')
+import matplotlib.pyplot as plt
 
 from opsdroid.skill import Skill
 from opsdroid.matchers import match_always, match_crontab, match_regex
+from opsdroid.events import Message
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -58,7 +63,7 @@ class Sysanalytics(Skill):
         """Adds command count."""
         self.commands_count += 1
 
-    @match_regex(r'memory status')
+    @match_regex(r'memory status', case_sensitive=False)
     async def show_memory(self, message):
         """Shows how much memory is being used."""
         mem = psutil.virtual_memory()
@@ -78,7 +83,7 @@ class Sysanalytics(Skill):
                 percent=mem.percent,
             ))
 
-    @match_regex(r'config status')
+    @match_regex(r'config status', case_sensitive=False)
     async def show_config(self, message):
         """Shows all available configuration"""
         await message.respond("""Your opsdroid configuration is as follows:
@@ -95,7 +100,7 @@ class Sysanalytics(Skill):
             skills=self.skills
         ))
 
-    @match_regex(r'disk status')
+    @match_regex(r'disk status', case_sensitive=False)
     async def show_disk(self, message):
         """Show cpu usage."""
         disk = psutil.disk_usage('/')
@@ -114,7 +119,7 @@ class Sysanalytics(Skill):
             )
         )
 
-    @match_regex(r'cpu status')
+    @match_regex(r'cpu status', case_sensitive=False)
     async def show_cpu(self, message):
         """Show cpu usage."""
         last_boot = datetime.datetime.fromtimestamp(
@@ -144,7 +149,7 @@ class Sysanalytics(Skill):
             )
         )
 
-    @match_regex(r'net status')
+    @match_regex(r'net status', case_sensitive=False)
     async def show_net(self, message):
         """Show network status."""
         net = psutil.net_io_counters()
@@ -173,7 +178,7 @@ class Sysanalytics(Skill):
 
         await message.respond(description)
 
-    @match_regex(r'all status')
+    @match_regex(r'all status', case_sensitive=False)
     async def show_status(self, message):
         """Shows collected status."""
         await message.respond("You have run {} commands since opsdroid "
@@ -209,3 +214,45 @@ class Sysanalytics(Skill):
         if self.config.get('log-usage'):
             _LOGGER.info("{} - CPU usage: {}% | RAM usage: {}%".format(
                 hours, cpu_usage, ram_usage))
+
+    @match_regex(r'daily graph', case_sensitive=False)
+    async def save_graph(self, message):
+        """Gets info from db and saves as graph."""
+        time = datetime.datetime.now()
+        date = "{}-{}-{}".format(time.day, time.month, time.year)
+        status = await self.opsdroid.memory.get("status")
+
+        labels = ["Time", "CPU", "RAM"]
+        graph = pd.DataFrame.from_records(status[date], columns=labels)
+
+        ax = plt.gca()
+        graph.plot(kind='line', x='Time', y="RAM", ax=ax)
+        graph.plot(kind='line', x='Time', y="CPU", ax=ax)
+
+        plt.savefig("../../SysAnalytics/Daily_graph_{}.png".format(date))
+        await message.respond("Done, saved file Daily_graph_{}".format(date))
+        plt.ioff()
+        plt.close("all")
+
+    @match_regex(r'get graph (.*)', case_sensitive=False)
+    async def save_graph(self, message):
+        """Gets info from db and saves as graph."""
+        date = message.regex.group(1)
+        status = await self.opsdroid.memory.get("status")
+
+        if status.get(date, None):
+            labels = ["Time", "CPU", "RAM"]
+            graph = pd.DataFrame.from_records(status[date], columns=labels)
+
+            ax = plt.gca()
+            graph.plot(kind='line', x='Time', y="RAM", ax=ax)
+            graph.plot(kind='line', x='Time', y="CPU", ax=ax)
+
+            plt.savefig("../../SysAnalytics/graph_from_{}.png".format(date))
+            await message.respond("Done, saved file Daily_graph_{}".format(date))
+            plt.ioff()
+            plt.close("all")
+        else:
+            _LOGGER.info("Unable to find details for '{}', "
+                         "we only have these dates in "
+                         "memory - {}.".format(date, ', '.join([*status])))

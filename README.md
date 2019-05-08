@@ -131,3 +131,27 @@ Also, if ou have the flag `log-usage` the cron job will log the current usage of
 
 ```INFO opsdroid-modules.skill.sysanalytics: 20:18 - CPU usage: 25.7% RAM usage: 77.0%```
 
+
+#### `daily graph`
+
+Gets details of the day from the database and saves the percentage of the RAM and CPU usage as a graph.
+
+
+> user: daily graph
+>
+> opsdroid: Done, saved file Daily_graph_10-4-2019
+
+
+#### `get graph 8-5-2019`
+
+Saves the graph of a specific date to file. If there is no status available opsdroid will log the attempt 
+and show you which ones are available.
+
+> user: get graph 12-4-2019
+>
+> opsdroid: Done, saved file graph_from_12-4-2019
+>
+>
+> user: get graph 1-4-2019
+>
+> opsdroid> INFO opsdroid-modules.skill.sysAnalytics: Unable to find details for 1-4-2019, we only have these dates in memory - 10-4-2019 12-4-2019 8-5-2019
