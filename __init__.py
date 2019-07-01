@@ -1,4 +1,5 @@
 import psutil
+import io
 import datetime
 import logging
 import pandas as pd
@@ -8,7 +9,7 @@ import matplotlib.pyplot as plt
 
 from opsdroid.skill import Skill
 from opsdroid.matchers import match_always, match_crontab, match_regex
-from opsdroid.events import Message
+from opsdroid.events import Message, Image
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ class Sysanalytics(Skill):
     def __init__(self, opsdroid, config):
         super(Sysanalytics, self).__init__(opsdroid, config)
         self.commands_count = 0
-
+        self.opsdroid = opsdroid
         self.config = config
         self.skills = self.get_configuration('skills')
         self.connectors = self.get_configuration('connectors')
@@ -215,11 +216,12 @@ class Sysanalytics(Skill):
             _LOGGER.info("{} - CPU usage: {}% | RAM usage: {}%".format(
                 hours, cpu_usage, ram_usage))
 
-    @match_regex(r'daily graph', case_sensitive=False)
-    async def save_graph(self, message):
+    async def get_graph(self, image, date=None):
         """Gets info from db and saves as graph."""
-        time = datetime.datetime.now()
-        date = "{}-{}-{}".format(time.day, time.month, time.year)
+        if not date:
+            time = datetime.datetime.now()
+            date = "{}-{}-{}".format(time.day, time.month, time.year)
+
         status = await self.opsdroid.memory.get("status")
 
         labels = ["Time", "CPU", "RAM"]
@@ -229,29 +231,26 @@ class Sysanalytics(Skill):
         graph.plot(kind='line', x='Time', y="RAM", ax=ax)
         graph.plot(kind='line', x='Time', y="CPU", ax=ax)
 
-        plt.savefig("../../SysAnalytics/Daily_graph_{}.png".format(date))
-        await message.respond("Done, saved file Daily_graph_{}".format(date))
-        plt.ioff()
-        plt.close("all")
+        byio = io.BytesIO()
+        plt.savefig(byio)
+        graph_image = Image(file_bytes=byio.getbuffer())
+        graph_image.name = 'daily_graph_{}'.format(date)
+        await image.respond(graph_image)
+        plt.close()
+
+    @match_regex(r'daily graph', case_sensitive=False)
+    async def save_daily_graph(self, image):
+        """Gets info from db and saves as graph."""
+        await self.get_graph(image)
 
     @match_regex(r'get graph (.*)', case_sensitive=False)
-    async def save_graph(self, message):
+    async def get_graph_from_date(self, image):
         """Gets info from db and saves as graph."""
-        date = message.regex.group(1)
+        date = image.regex.group(1)
         status = await self.opsdroid.memory.get("status")
 
         if status.get(date, None):
-            labels = ["Time", "CPU", "RAM"]
-            graph = pd.DataFrame.from_records(status[date], columns=labels)
-
-            ax = plt.gca()
-            graph.plot(kind='line', x='Time', y="RAM", ax=ax)
-            graph.plot(kind='line', x='Time', y="CPU", ax=ax)
-
-            plt.savefig("../../SysAnalytics/graph_from_{}.png".format(date))
-            await message.respond("Done, saved file Daily_graph_{}".format(date))
-            plt.ioff()
-            plt.close("all")
+            await self.get_graph(image, date)
         else:
             _LOGGER.info("Unable to find details for '{}', "
                          "we only have these dates in "
