@@ -1,10 +1,10 @@
 import psutil
 import io
+import platform
 import datetime
 import logging
 import pandas as pd
 import matplotlib as mtpl
-mtpl.use('TkAgg')
 import matplotlib.pyplot as plt
 
 from opsdroid.skill import Skill
@@ -12,6 +12,9 @@ from opsdroid.matchers import match_always, match_crontab, match_regex
 from opsdroid.events import Message, Image
 
 _LOGGER = logging.getLogger(__name__)
+
+if platform.system() == "Darwin":
+    mtpl.use('TkAgg')
 
 
 def humansize(nbytes):
